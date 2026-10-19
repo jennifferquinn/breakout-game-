@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Q-Learning plays Breakout</title>
+<style>
+  :root{--bg:#14213d;--panel:#1d2d50;--ink:#f1f5f9;--mute:#9fb0cc;--line:#31446b;--ball:#ffd23f;--good:#3ddc97;--accent:#4cc9f0}
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(135deg,#14213d 0%,#2a1b4d 60%,#10394d 100%);color:var(--ink);font:16px/1.55 Georgia,"Times New Roman",serif;padding:24px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:30px;margin:0 0 4px}
+  h2{font-size:19px;margin:0 0 8px}
+  p.sub{color:var(--mute);margin:0 0 16px;max-width:70ch}
+  .grid{display:grid;grid-template-columns:460px 1fr;gap:20px}
+  @media(max-width:800px){.grid{grid-template-columns:1fr}}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  canvas{display:block;max-width:100%;background:#0b1530;border-radius:6px}
+  .modes{display:flex;gap:8px;margin-bottom:16px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+  .stat{background:#16254a;border-radius:8px;padding:8px 10px}
+  .stat b{display:block;font-size:19px;font-family:Consolas,monospace}
+  .stat span{color:var(--mute);font-size:13px}
+  .q{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:14px;font-family:Consolas,monospace}
+  .q span.n{width:60px}
+  .q .bar{flex:1;height:14px;background:#16254a;border-radius:4px;position:relative;overflow:hidden}
+  .q .fill{position:absolute;top:0;bottom:0;left:50%;background:var(--mute)}
+  .q.best .fill{background:var(--good)}
+  .q .v{width:60px;text-align:right}
+  button{font:inherit;background:var(--accent);color:#06203a;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;font-weight:bold}
+  button.alt{background:#31446b;color:var(--ink)}
+  button.on{background:var(--ball);color:#3a2a00}
+  button:focus-visible,input:focus-visible{outline:3px solid var(--ball);outline-offset:2px}
+  .ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+  label{font-size:14px;color:var(--mute)}
+  .legend{font-size:13px;color:var(--mute);margin-top:6px}
+  ol,ul{padding-left:20px;margin:8px 0}
+  li{margin:6px 0}
+  code{font-family:Consolas,monospace;background:#16254a;padding:1px 5px;border-radius:4px;color:var(--ball)}
+  .full{margin-top:20px}
+  .hidden{display:none}
+  h1{background:linear-gradient(90deg,#ffd23f,#ff6b6b,#4cc9f0);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .box{border-top:4px solid var(--accent)}
+  #humanPanel{border-top-color:#ffd23f}
+  #aiPanel .box:nth-child(2){border-top-color:#ff6b6b}
+  #aiPanel .box:nth-child(3){border-top-color:#3ddc97}
+  .full{border-top-color:#c77dff}
+  .stat{border-left:4px solid #4cc9f0}
+  .stat:nth-child(3n+2){border-left-color:#ffd23f}
+  .stat:nth-child(3n){border-left-color:#ff6b6b}
+  .bricks{letter-spacing:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧱 Breakout: play it, then watch an AI learn it 🤖</h1>
+  <p class="sub">Pick a mode. In <b>Play yourself</b> you steer the paddle with the arrow keys. In <b>AI training</b> a Deep Q-Learning agent learns the game alone. No internet needed.</p>
+
+  <div class="modes">
+    <button id="modeHuman" class="on">🎮 Play yourself</button>
+    <button id="modeAI" class="alt">🤖 AI training</button>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <canvas id="game" width="480" height="540"></canvas>
+      <div class="ctl">
+        <button id="startBtn">▶ Start game</button>
+        <button id="restartBtn" class="alt">🔄 Restart game</button>
+        <button id="resetBtn" class="alt hidden">♻️ Reset agent</button>
+      </div>
+      <div id="humanSpeedCtl" class="ctl">
+        <label for="ballSpeed">🏐 Ball speed: <span id="ballSpeedVal">4.5</span></label>
+        <input id="ballSpeed" type="range" min="2.5" max="7" step="0.5" value="4.5">
+      </div>
+      <div id="aiCtl" class="hidden">
+        <div class="ctl">
+          <label for="speed">Speed: <span id="speedVal">10</span>x</label>
+          <input id="speed" type="range" min="1" max="30" value="10">
+        </div>
+        <div class="ctl">
+          <label><input id="greedy" type="checkbox"> Turn off random moves (show what it knows)</label>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div id="humanPanel" class="box">
+        <div class="stats">
+          <div class="stat"><b id="hScore">0</b><span>Score</span></div>
+          <div class="stat"><b id="hLives">5</b><span>Lives left</span></div>
+          <div class="stat"><b id="hBest">0</b><span>Best score</span></div>
+        </div>
+        <h2>🕹️ How to play</h2>
+        <ul>
+          <li>Press <b>▶ Start game</b>, then use <code>←</code> and <code>→</code> to move the paddle. Press <b>Pause</b> any time. After game over, press <code>Space</code> to play again.</li>
+          <li>Bounce the ball off the paddle to break bricks. It also bounces off the gray walls.</li>
+          <li>Higher layers score more: top layer 7 points, then 5, 3, and 1 at the bottom.</li>
+          <li>If the ball hits the ground you lose one of your 5 lives, and a new ball is served while lives remain.</li>
+          <li>Goal: the highest score before you run out of lives.</li>
+        </ul>
+      </div>
+
+      <div id="aiPanel" class="hidden">
+        <div class="box">
+          <div class="stats">
+            <div class="stat"><b id="sEp">0</b><span>Games played</span></div>
+            <div class="stat"><b id="sEps">1.00</b><span>Random-move chance (ε)</span></div>
+            <div class="stat"><b id="sAvg">0.0</b><span>Avg score, last 20</span></div>
+            <div class="stat"><b id="sBr">0</b><span>Score this game</span></div>
+            <div class="stat"><b id="sBest">0</b><span>Best score</span></div>
+            <div class="stat"><b id="sBuf">0</b><span>Memories stored</span></div>
+            <div class="stat"><b id="sUpd">0</b><span>Weight updates</span></div>
+            <div class="stat"><b id="sLoss">–</b><span>Loss (prediction error)</span></div>
+            <div class="stat"><b id="sLives">5</b><span>Lives left</span></div>
+          </div>
+          <h2>🧠 Q-values the network outputs right now</h2>
+          <div id="qbars"></div>
+          <div class="legend">Each bar is the network's estimate of future reward for that move. Green is the move it prefers. Expect roughly the first 20,000 moves (a few minutes) to look random, then the score climbs. Like real DQN training, it can also dip and recover.</div>
+        </div>
+        <div class="box" style="margin-top:20px">
+          <h2>🔬 Inside the network</h2>
+          <canvas id="net" width="600" height="150"></canvas>
+          <div class="legend">Left to right: the two frames it sees, what layer 1 and layer 2 detect, and layer 1's learned filters (these change as the weights are updated).</div>
+        </div>
+        <div class="box" style="margin-top:20px">
+          <h2>📈 Score per game (5 lives each)</h2>
+          <canvas id="chart" width="560" height="170"></canvas>
+          <div class="legend">Grey dots: each game. Blue line: average of the last 20 games.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box full">
+    <h2>📚 How the AI learns</h2>
+    <ol>
+      <li><b>Look.</b> The agent sees a small picture of the screen (20×24 cells) and the picture from one move earlier, so it can tell where the ball is heading.</li>
+      <li><b>Guess.</b> A convolutional neural network turns those pictures into 3 Q-values, one each for <code>Left</code>, <code>Stay</code>, <code>Right</code>. A Q-value is the total reward the agent expects to collect from now on.</li>
+      <li><b>Act.</b> It usually picks the best move, but with chance ε it picks a random one. This is how it explores. ε shrinks as it gains experience.</li>
+      <li><b>Remember.</b> After each move it stores (state, action, reward, next state) in a memory called the replay buffer. Rewards: points for a brick (top layers pay more), 0 for ordinary moves, −1 for losing a life.</li>
+      <li><b>Learn.</b> It picks 32 random memories and nudges the network, using back-propagation, so that its guess moves toward <code>reward + 0.97 × best Q-value of the next state</code>. That target comes from a frozen copy of the network (the target network), refreshed every 1000 steps to keep learning stable.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+// ==CORE START==
+// ============ 1. THE GAME (5 lives, layered bricks, gray side walls) ============
+const W = 320, H = 360, WALL = 10, PW = 60, PH = 8, PY = H - 20, R = 5;
+let SP = 3.5;                                    // ball speed (adjustable in Play mode; fixed for the AI)
+const AI_SPEED = 3.5;
+const COLS = 10, ROWS = 4, BW = (W - 2 * WALL) / COLS, BH = 15, TOP = 45;
+const POINTS = [7, 5, 3, 1];                    // top layer is worth the most
+const rowColors = ['#ff6b6b', '#ff9f43', '#ffd23f', '#3ddc97'];
+let paddle = W / 2, bx, by, vx, vy, bricks, brokenCount, stepCount, score, lives, over, serve;
+let humanMode = true;
+
+function newGame() {
+  bricks = Array.from({length: ROWS}, () => Array(COLS).fill(true));
+  brokenCount = 0; stepCount = 0; score = 0; lives = 5; over = false;
+  paddle = W / 2; serveBall();
+}
+function serveBall() {                           // a new ball shoots into play
+  bx = W / 2; by = H / 2 + 40;
+  const a = Math.random() * 1.6 - 0.8;
+  vx = SP * Math.sin(a); vy = SP * Math.cos(a);
+  serve = humanMode ? 45 : 0;                    // "get ready" pause for humans only
+}
+// action: 0 = left, 1 = stay, 2 = right.
+// REWARD: points for a brick, 0 for ordinary steps, -1 for losing a life.
+function gameStep(action) {
+  let reward = 0, done = false, lifeLost = false;
+  if (over) return {reward, done: true, lifeLost};
+  if (serve > 0) { serve--; return {reward, done, lifeLost}; }
+  stepCount++;
+  paddle = Math.max(WALL + PW / 2, Math.min(W - WALL - PW / 2, paddle + (action - 1) * 7));
+  bx += vx; by += vy;
+  if (bx < WALL + R) { bx = WALL + R; vx = -vx; }
+  if (bx > W - WALL - R) { bx = W - WALL - R; vx = -vx; }
+  if (by < R) { by = R; vy = -vy; }
+  const c = Math.floor((bx - WALL) / BW), r = Math.floor((by - TOP) / BH);
+  if (r >= 0 && r < ROWS && c >= 0 && c < COLS && bricks[r][c]) {
+    bricks[r][c] = false; vy = -vy; brokenCount++;
+    score += POINTS[r]; reward += POINTS[r] * 0.2;
+    if (brokenCount === ROWS * COLS) { over = true; done = true; }
+  }
+  if (vy > 0 && by + R >= PY && by <= PY + PH && Math.abs(bx - paddle) <= PW / 2 + R) {
+    vx = Math.max(-SP * 0.86, Math.min(SP * 0.86, SP * 1.2 * (bx - paddle) / (PW / 2)));
+    vy = -Math.sqrt(Math.max(SP * SP - vx * vx, 4));
+    by = PY - R;
+  }
+  if (by > H) {
+    lives--; reward -= 1; lifeLost = true;
+    if (lives <= 0) { over = true; done = true; } else serveBall();
+  }
+  if (stepCount >= 6000) { over = true; done = true; }
+  return {reward, done, lifeLost};
+}
+
+// ============ 2. WHAT THE AGENT SEES: a 20x24 grayscale picture ============
+const GW = 20, GH = 24, GC = (W - 2 * WALL) / GW, GR = H / GH;
+function frameNow() {
+  const f = new Float32Array(GW * GH);
+  const put = (x, y, w, h, v) => {
+    const x0 = Math.max(0, Math.floor((x - WALL) / GC)), x1 = Math.min(GW - 1, Math.floor((x + w - 1 - WALL) / GC));
+    const y0 = Math.max(0, Math.floor(y / GR)), y1 = Math.min(GH - 1, Math.floor((y + h - 1) / GR));
+    for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++) f[yy * GW + xx] = v;
+  };
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++)
+    if (bricks[r][c]) put(WALL + c * BW, TOP + r * BH, BW, BH, 0.2 + 0.1 * (ROWS - 1 - r));
+  put(paddle - PW / 2, PY, PW, PH, 0.7);
+  put(bx, by, 1, 1, 1);
+  return f;
+}
+function stack(cur, prev) { const s = new Float32Array(2 * GW * GH); s.set(cur); s.set(prev, GW * GH); return s; }
+
+// ============ 3. THE CONVOLUTIONAL NEURAL NETWORK ============
+// picture(2x24x20) -> conv 4x4 (8 filters, stride 2) -> conv 3x3 (8 filters, stride 2) -> 32 hidden -> 3 Q-values
+const C1 = 8, K1 = 4, S1 = 2, O1W = 9, O1H = 11, C2 = 8, K2 = 3, S2 = 2, O2W = 4, O2H = 5;
+const FLAT = C2 * O2H * O2W, HID = 32, NA = 3;
+const SHAPES = {w1: C1 * 2 * K1 * K1, b1: C1, w2: C2 * C1 * K2 * K2, b2: C2, wf1: FLAT * HID, bf1: HID, wf2: HID * NA, bf2: NA};
+const FAN = {w1: 2 * K1 * K1, w2: C1 * K2 * K2, wf1: FLAT, wf2: HID};
+
+function makeNet() {                             // random starting weights
+  const P = {};
+  for (const k in SHAPES) {
+    const a = new Float32Array(SHAPES[k]);
+    if (FAN[k]) { const lim = Math.sqrt(6 / FAN[k]) * (k === 'wf2' ? 0.3 : 1); for (let i = 0; i < a.length; i++) a[i] = (Math.random() * 2 - 1) * lim; }
+    P[k] = a;
+  }
+  return P;
+}
+function cloneNet(P) { const Q = {}; for (const k in P) Q[k] = P[k].slice(); return Q; }
+
+function convF(x, iC, iH, iW, w, b, oC, k, s, oH, oW) {          // convolution + ReLU
+  const o = new Float32Array(oC * oH * oW);
+  for (let f = 0; f < oC; f++) for (let y = 0; y < oH; y++) for (let xx = 0; xx < oW; xx++) {
+    let sum = b[f];
+    for (let c = 0; c < iC; c++) for (let ky = 0; ky < k; ky++) for (let kx = 0; kx < k; kx++)
+      sum += x[(c * iH + y * s + ky) * iW + xx * s + kx] * w[((f * iC + c) * k + ky) * k + kx];
+    o[(f * oH + y) * oW + xx] = sum > 0 ? sum : 0;
+  }
+  return o;
+}
+function convB(x, iC, iH, iW, w, gw, gb, o, d, oC, k, s, oH, oW, dx) {  // back-propagate through a conv layer
+  for (let f = 0; f < oC; f++) for (let y = 0; y < oH; y++) for (let xx = 0; xx < oW; xx++) {
+    const i = (f * oH + y) * oW + xx;
+    if (o[i] <= 0) continue;                      // ReLU passes no gradient where output was 0
+    const g = d[i]; gb[f] += g;
+    for (let c = 0; c < iC; c++) for (let ky = 0; ky < k; ky++) for (let kx = 0; kx < k; kx++) {
+      const xi = (c * iH + y * s + ky) * iW + xx * s + kx, wi = ((f * iC + c) * k + ky) * k + kx;
+      gw[wi] += g * x[xi]; if (dx) dx[xi] += g * w[wi];
+    }
+  }
+}
+function forward(P, x) {
+  const a1 = convF(x, 2, GH, GW, P.w1, P.b1, C1, K1, S1, O1H, O1W);
+  const a2 = convF(a1, C1, O1H, O1W, P.w2, P.b2, C2, K2, S2, O2H, O2W);
+  const h = new Float32Array(HID), q = new Float32Array(NA);
+  for (let j = 0; j < HID; j++) { let s = P.bf1[j]; for (let i = 0; i < FLAT; i++) s += a2[i] * P.wf1[i * HID + j]; h[j] = s > 0 ? s : 0; }
+  for (let k = 0; k < NA; k++) { let s = P.bf2[k]; for (let j = 0; j < HID; j++) s += h[j] * P.wf2[j * NA + k]; q[k] = s; }
+  return {x, a1, a2, h, q};
+}
+
+// ============ 4. THE DQN AGENT ============
+const GAMMA = 0.97, LR = 0.001, BATCH = 32, BUF_MAX = 5000, TRAIN_EVERY = 4, TARGET_EVERY = 1000;
+const LEARN_START = 1000, SKIP = 3, EPS_STEPS = 10000, EPS_MIN = 0.05;
+let net, targetNet, gr, mm, vv, adamT, buffer, eps, decisions, updates, lastLoss;
+let S, curFrame, curQ = [0, 0, 0], lastC = null, greedyOn = false, best = 0;
+const scores = [];
+
+function initAgent() {
+  net = makeNet(); targetNet = cloneNet(net); gr = {}; mm = {}; vv = {};
+  for (const k in SHAPES) { gr[k] = new Float32Array(SHAPES[k]); mm[k] = new Float32Array(SHAPES[k]); vv[k] = new Float32Array(SHAPES[k]); }
+  adamT = 0; buffer = []; eps = 1; decisions = 0; updates = 0; lastLoss = null; lastC = null; curQ = [0, 0, 0];
+}
+
+function learn() {                               // one training update on 32 random memories
+  for (const k in gr) gr[k].fill(0);
+  let loss = 0;
+  for (let n = 0; n < BATCH; n++) {
+    const m = buffer[Math.floor(Math.random() * buffer.length)];
+    const c = forward(net, m.s);
+    let target = m.r;                            // the "answer" the network should have predicted
+    if (!m.done) { const q2 = forward(targetNet, m.s2).q; target += GAMMA * Math.max(q2[0], q2[1], q2[2]); }
+    const err = c.q[m.a] - target; loss += err * err;
+    const e = Math.max(-1, Math.min(1, err)) / BATCH;      // error signal at the output
+    // --- back-propagation: send the error backwards, layer by layer ---
+    const dh = new Float32Array(HID), da2 = new Float32Array(FLAT), da1 = new Float32Array(C1 * O1H * O1W);
+    gr.bf2[m.a] += e;
+    for (let j = 0; j < HID; j++) { gr.wf2[j * NA + m.a] += c.h[j] * e; dh[j] = c.h[j] > 0 ? net.wf2[j * NA + m.a] * e : 0; }
+    for (let j = 0; j < HID; j++) if (dh[j]) {
+      gr.bf1[j] += dh[j];
+      for (let i = 0; i < FLAT; i++) { gr.wf1[i * HID + j] += c.a2[i] * dh[j]; da2[i] += net.wf1[i * HID + j] * dh[j]; }
+    }
+    convB(c.a1, C1, O1H, O1W, net.w2, gr.w2, gr.b2, c.a2, da2, C2, K2, S2, O2H, O2W, da1);
+    convB(m.s, 2, GH, GW, net.w1, gr.w1, gr.b1, c.a1, da1, C1, K1, S1, O1H, O1W, null);
+  }
+  // --- weight update (Adam optimizer: a smarter version of "weight -= rate * gradient") ---
+  adamT++; const c1 = 1 - Math.pow(0.9, adamT), c2 = 1 - Math.pow(0.999, adamT);
+  for (const k in net) for (let i = 0; i < net[k].length; i++) {
+    const g = gr[k][i];
+    mm[k][i] = 0.9 * mm[k][i] + 0.1 * g; vv[k][i] = 0.999 * vv[k][i] + 0.001 * g * g;
+    net[k][i] -= LR * (mm[k][i] / c1) / (Math.sqrt(vv[k][i] / c2) + 1e-8);
+  }
+  updates++; lastLoss = loss / BATCH;
+}
+
+function startEpisode() { newGame(); curFrame = frameNow(); S = stack(curFrame, curFrame); }
+
+function decide() {                              // one agent decision (repeated over SKIP game steps)
+  const c = forward(net, S); lastC = c; curQ = Array.from(c.q);
+  const top = curQ.indexOf(Math.max(...curQ));
+  const a = (!greedyOn && Math.random() < eps) ? Math.floor(Math.random() * NA) : top;
+  let r = 0, done = false, lost = false;
+  for (let i = 0; i < SKIP && !done && !lost; i++) { const o = gameStep(a); r += o.reward; done = o.done; lost = o.lifeLost; }
+  const nf = frameNow(), S2 = stack(nf, curFrame);
+  const mem = {s: S, a, r, s2: S2, done: done || lost};
+  if (buffer.length < BUF_MAX) buffer.push(mem); else buffer[decisions % BUF_MAX] = mem;
+  curFrame = nf; S = S2; decisions++;
+  eps = Math.max(EPS_MIN, 1 - decisions / EPS_STEPS);
+  if (buffer.length >= LEARN_START && decisions % TRAIN_EVERY === 0) learn();
+  if (decisions % TARGET_EVERY === 0) targetNet = cloneNet(net);
+  if (done) { scores.push(score); best = Math.max(best, score); startEpisode(); }
+}
+// ==CORE END==
+
+// ============ 5. MODES, START/PAUSE, MAIN LOOP ============
+const $ = id => document.getElementById(id);
+let running = false, speed = 10, humanBest = 0;
+const keys = {};
+
+function frame() {
+  if (humanMode) {
+    if (running && !over) gameStep(keys.ArrowLeft && !keys.ArrowRight ? 0 : keys.ArrowRight && !keys.ArrowLeft ? 2 : 1);
+    if (over) humanBest = Math.max(humanBest, score);
+  } else if (running) {
+    for (let i = 0; i < speed; i++) decide();
+  }
+  draw(); updateUI();
+  requestAnimationFrame(frame);
+}
+function setRunning(on) {
+  running = on;
+  $('startBtn').textContent = on ? '⏸ Pause' : (humanMode ? (stepCount ? '▶ Resume' : '▶ Start game') : (decisions ? '▶ Resume training' : '▶ Start training'));
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') e.preventDefault();
+  keys[e.key] = true;
+  if (e.key === ' ' && humanMode && over) { newGame(); setRunning(true); }
+});
+document.addEventListener('keyup', e => keys[e.key] = false);
+
+function setMode(human) {
+  humanMode = human;
+  $('modeHuman').className = human ? 'on' : 'alt'; $('modeAI').className = human ? 'alt' : 'on';
+  for (const id of ['humanPanel', 'restartBtn', 'humanSpeedCtl']) $(id).classList.toggle('hidden', !human);
+  for (const id of ['aiPanel', 'aiCtl', 'resetBtn']) $(id).classList.toggle('hidden', human);
+  SP = human ? +$('ballSpeed').value : AI_SPEED;   // AI always trains at the same speed
+  startEpisode(); setRunning(false);
+}
+$('modeHuman').onclick = () => setMode(true);
+$('modeAI').onclick = () => setMode(false);
+$('startBtn').onclick = () => setRunning(!running);
+$('restartBtn').onclick = () => { newGame(); setRunning(false); };
+$('resetBtn').onclick = () => { initAgent(); scores.length = 0; best = 0; startEpisode(); setRunning(false); };
+$('ballSpeed').oninput = e => {
+  const v = +e.target.value; $('ballSpeedVal').textContent = v.toFixed(1);
+  if (humanMode) { const f = v / SP; vx *= f; vy *= f; SP = v; }   // takes effect immediately
+};
+$('speed').oninput = e => { speed = +e.target.value; $('speedVal').textContent = speed; };
+$('greedy').onchange = e => greedyOn = e.target.checked;
+
+// ============ 6. DRAWING ============
+const ctx = $('game').getContext('2d');
+function draw() {
+  ctx.setTransform(1.5, 0, 0, 1.5, 0, 0);
+  const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#2b1a5e'); bg.addColorStop(1, '#0b1f4a');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#8a94a6'; ctx.fillRect(0, 0, WALL, H); ctx.fillRect(W - WALL, 0, WALL, H);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (bricks[r][c]) {
+    ctx.fillStyle = rowColors[r]; ctx.fillRect(WALL + c * BW + 1, TOP + r * BH + 1, BW - 2, BH - 2);
+  }
+  ctx.fillStyle = '#4cc9f0'; ctx.fillRect(paddle - PW / 2, PY, PW, PH);
+  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(bx, by, R, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f1f5f9'; ctx.font = 'bold 16px Consolas';
+  ctx.textAlign = 'left'; ctx.fillText('⭐ ' + score, WALL + 6, 26);
+  ctx.textAlign = 'right'; ctx.fillText('❤️ ' + lives, W - WALL - 6, 26);
+  ctx.textAlign = 'center';
+  const banner = (t1, t2) => {
+    ctx.fillStyle = 'rgba(11,21,48,.85)'; ctx.fillRect(WALL, H / 2 - 50, W - 2 * WALL, 90);
+    ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 22px Georgia'; ctx.fillText(t1, W / 2, H / 2 - 14);
+    ctx.fillStyle = '#f1f5f9'; ctx.font = '15px Georgia'; ctx.fillText(t2, W / 2, H / 2 + 18);
+  };
+  if (over) banner(brokenCount === ROWS * COLS ? '🎉 All bricks cleared!' : '💥 Game over', 'Final score ' + score + (humanMode ? ' · press Space' : ''));
+  else if (!running) banner(stepCount || decisions ? '⏸ Paused' : '🧱 Ready', humanMode ? 'Press Start game' : 'Press Start training');
+  else if (humanMode && serve > 0) ctx.fillText('🏓 Get ready…', W / 2, H / 2 - 20);
+}
+
+const names = ['Left', 'Stay', 'Right'];
+$('qbars').innerHTML = names.map((n, i) => `<div class="q" id="q${i}"><span class="n">${n}</span><div class="bar"><div class="fill"></div></div><span class="v">0.00</span></div>`).join('');
+
+function updateUI() {
+  if (humanMode) { $('hScore').textContent = score; $('hLives').textContent = lives; $('hBest').textContent = humanBest; return; }
+  const last = scores.slice(-20);
+  $('sEp').textContent = scores.length;
+  $('sEps').textContent = (greedyOn ? 0 : eps).toFixed(2);
+  $('sAvg').textContent = last.length ? (last.reduce((a, b) => a + b, 0) / last.length).toFixed(1) : '0.0';
+  $('sBr').textContent = score; $('sBest').textContent = best; $('sBuf').textContent = buffer.length;
+  $('sUpd').textContent = updates; $('sLoss').textContent = lastLoss === null ? '–' : lastLoss.toFixed(3);
+  $('sLives').textContent = lives;
+  const top = curQ.indexOf(Math.max(...curQ)), scale = Math.max(1, ...curQ.map(Math.abs));
+  curQ.forEach((v, i) => {
+    const row = $('q' + i), f = row.querySelector('.fill'), w = Math.abs(v) / scale * 50;
+    row.classList.toggle('best', i === top);
+    f.style.width = w + '%'; f.style.left = v >= 0 ? '50%' : (50 - w) + '%';
+    row.querySelector('.v').textContent = v.toFixed(2);
+  });
+  drawNet(); drawChart();
+}
+
+const nx = $('net').getContext('2d');
+function heat(arr, off, w, h, x0, y0, sc) {      // draw numbers as a grayscale picture
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < w * h; i++) { const v = arr[off + i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+  const rg = mx - mn || 1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = Math.round(255 * (arr[off + y * w + x] - mn) / rg);
+    nx.fillStyle = `rgb(${v},${v},${v})`; nx.fillRect(x0 + x * sc, y0 + y * sc, sc, sc);
+  }
+}
+function drawNet() {
+  nx.clearRect(0, 0, 600, 150);
+  nx.fillStyle = '#9fb0cc'; nx.font = '11px Consolas'; nx.textAlign = 'left';
+  nx.fillText('Input: now / before', 4, 12); nx.fillText('Layer 1 maps', 185, 12);
+  nx.fillText('Layer 2 maps', 360, 12); nx.fillText('Layer 1 filters', 482, 12);
+  if (!lastC) return;
+  heat(lastC.x, 0, GW, GH, 4, 20, 4); heat(lastC.x, GW * GH, GW, GH, 90, 20, 4);
+  for (let f = 0; f < C1; f++) heat(lastC.a1, f * O1W * O1H, O1W, O1H, 185 + (f % 4) * 40, 20 + Math.floor(f / 4) * 48, 4);
+  for (let f = 0; f < C2; f++) heat(lastC.a2, f * O2W * O2H, O2W, O2H, 360 + (f % 4) * 28, 20 + Math.floor(f / 4) * 36, 6);
+  for (let f = 0; f < C1; f++) heat(net.w1, f * 2 * K1 * K1, K1, K1, 482 + (f % 4) * 28, 20 + Math.floor(f / 4) * 30, 6);
+}
+
+const ch = $('chart'), cx = ch.getContext('2d');
+function drawChart() {
+  const cw = ch.width, chh = ch.height;
+  cx.clearRect(0, 0, cw, chh);
+  cx.strokeStyle = '#31446b'; cx.fillStyle = '#9fb0cc'; cx.font = '11px Consolas'; cx.textAlign = 'left';
+  if (scores.length < 2) { cx.fillText('Scores will appear here once games finish.', 12, chh / 2); return; }
+  const hi = Math.max(10, ...scores);
+  const X = i => 30 + i / (scores.length - 1) * (cw - 40), Y = v => chh - 16 - v / hi * (chh - 28);
+  cx.beginPath(); cx.moveTo(30, Y(0)); cx.lineTo(cw - 10, Y(0)); cx.stroke();
+  cx.fillText(hi.toFixed(0), 4, 12); cx.fillText('0', 4, chh - 8);
+  cx.fillStyle = 'rgba(159,176,204,.55)';
+  scores.forEach((v, i) => { cx.beginPath(); cx.arc(X(i), Y(v), 2, 0, 7); cx.fill(); });
+  cx.strokeStyle = '#4cc9f0'; cx.lineWidth = 2; cx.beginPath();
+  scores.forEach((_, i) => {
+    const p = scores.slice(Math.max(0, i - 19), i + 1), avg = p.reduce((a, b) => a + b, 0) / p.length;
+    i ? cx.lineTo(X(i), Y(avg)) : cx.moveTo(X(i), Y(avg));
+  });
+  cx.stroke(); cx.lineWidth = 1;
+}
+
+SP = +$('ballSpeed').value;
+initAgent(); startEpisode(); setRunning(false);
+frame();
+</script>
+</body>
+</html>
