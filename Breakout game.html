@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Q-Learning Lab: Teaching an AI to Play Breakout</title>
+<style>
+:root{--bg:#070a1a;--panel:#0e1330;--line:#222a5a;--txt:#e6ebff;--dim:#8f9bd1;--cy:#00f0ff;--mg:#ff2bd6;--lm:#9dff3b;--yl:#ffd23f}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 20% 0,#14194a 0,var(--bg) 55%);color:var(--txt);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
+header{text-align:center;padding:28px 16px 8px}
+h1{margin:0;font-size:clamp(1.5rem,4vw,2.6rem);letter-spacing:1px;color:var(--cy);text-shadow:0 0 18px #00f0ff88;animation:glow 3s ease-in-out infinite alternate}
+@keyframes glow{to{text-shadow:0 0 30px #ff2bd6aa}}
+header p{color:var(--dim);max-width:820px;margin:8px auto}
+main{max-width:1200px;margin:auto;padding:12px 16px 40px;display:grid;gap:16px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 0 24px #00000066}
+h2{margin:0 0 10px;font-size:1.15rem;color:var(--lm)}
+h3{margin:12px 0 6px;font-size:1rem;color:var(--yl)}
+canvas{max-width:100%;height:auto;background:#050716;border-radius:10px;border:1px solid var(--line);display:block}
+#game{margin:auto;border-color:var(--cy);box-shadow:0 0 22px #00f0ff44}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+button{background:#151b45;color:var(--txt);border:1px solid var(--cy);border-radius:10px;padding:8px 14px;cursor:pointer;font:inherit;transition:.15s}
+button:hover{background:var(--cy);color:#001;transform:translateY(-1px)}
+button.on{background:var(--mg);border-color:var(--mg);color:#fff}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{flex:1;min-width:90px;background:#0a0e28;border:1px solid var(--line);border-radius:10px;padding:6px 10px;text-align:center}
+.stat b{display:block;font-size:1.3rem;color:var(--cy)}
+.stat span{color:var(--dim);font-size:.75rem}
+.qrow{display:grid;grid-template-columns:60px 1fr 70px;gap:8px;align-items:center;margin:6px 0;padding:4px 6px;border-radius:8px;border:1px solid transparent}
+.qrow.best{border-color:var(--lm);background:#9dff3b14;box-shadow:0 0 12px #9dff3b44}
+.track{position:relative;height:18px;background:#050716;border-radius:9px;overflow:hidden}
+.track:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:#556}
+.fill{position:absolute;top:0;bottom:0;border-radius:9px;transition:all .08s}
+code,.mono{font-family:Consolas,monospace;color:var(--yl);font-size:.85rem}
+#log{height:190px;overflow:auto;background:#050716;border-radius:10px;padding:8px;font:12.5px Consolas,monospace}
+#log div{border-bottom:1px solid #151a3d;padding:1px 0}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-weight:700}
+.explore{background:var(--mg)}.exploit{background:var(--cy);color:#001}
+.bar{height:12px;background:#050716;border-radius:6px;overflow:hidden;margin:4px 0}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--mg),var(--cy))}
+ol.loop{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:8px 0}
+ol.loop li{flex:1;min-width:130px;background:#0a0e28;border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;counter-increment:s}
+ol.loop li:before{content:counter(s);display:block;color:var(--mg);font-weight:800}
+ol.loop{counter-reset:s}
+dt{color:var(--cy);font-weight:700;margin-top:8px}dd{margin:0 0 0 14px;color:var(--dim)}
+#err{display:none;background:#5a0f2a;border:1px solid var(--mg);padding:10px;border-radius:10px}
+.note{color:var(--dim);font-size:.88rem}
+input[type=range]{accent-color:var(--mg)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🕹️ Deep Q-Learning Lab</h1>
+  <p>Teaching an AI to play Breakout.</p>
+</header>
+<main>
+<div id="err"></div>
+
+<!-- SECTION 1 + 2: GAME and DQN PANEL -->
+<div class="grid">
+  <section class="panel">
+    <h2>1 · Breakout arena</h2>
+    <canvas id="game" width="320" height="400"></canvas>
+    <div class="stats" style="margin-top:10px">
+      <div class="stat"><b id="sScore">0</b><span>SCORE</span></div>
+      <div class="stat"><b id="sLives">3</b><span>LIVES</span></div>
+      <div class="stat"><b id="sBricks">40</b><span>BRICKS LEFT</span></div>
+    </div>
+    <div class="row">
+      <button id="bStart">▶ Start</button>
+      <button id="bReset">↺ Reset game</button>
+      <button id="bHuman">🧑 Human play</button>
+      <button id="bAI">🤖 AI play</button>
+    </div>
+    <div class="row">
+      <button id="bTrain">🧠 Start AI training</button>
+      <button id="bForget">🗑 Reset agent</button>
+    </div>
+    <div class="row">
+      <label for="speed">Speed: <b id="speedV">10</b>× steps/frame</label>
+      <input type="range" id="speed" min="1" max="100" value="10">
+    </div>
+    <p class="note">Human mode: use the ← and → arrow keys. AI mode: the neural network moves the paddle. With <i>training on</i> the AI explores and learns; with it off, the AI plays greedily using what it has learned so far.</p>
+  </section>
+
+  <section class="panel">
+    <h2>2 · Inside the AI's decision</h2>
+    <h3>State (what the network sees)</h3>
+    <div id="stateBox" class="mono"></div>
+    <h3>Estimated Q-values for each action</h3>
+    <div id="qbars"></div>
+    <p>Chosen action: <span id="chosen" class="pill exploit">-</span> <span id="chosenWhy" class="note"></span></p>
+    <p class="note">A <b>Q-value</b> is the network's estimate of the total future reward the agent expects if it takes that action in the current state and then keeps playing well. The agent normally picks the action with the highest Q-value.</p>
+    <h3>Explore vs. Exploit</h3>
+    <div>ε (chance of a random move): <b id="epsV" style="color:var(--mg)">1.00</b></div>
+    <div class="bar"><i id="epsBar" style="width:100%"></i></div>
+    <div class="note">Explore moves: <b id="nExp">0</b> · Exploit moves: <b id="nExpl">0</b></div>
+    <p class="note">Why random moves? At the start the network knows nothing, so its "best" action is meaningless. <b>Exploration</b> (random actions) lets the agent discover rewards it would never find otherwise. <b>Exploitation</b> uses current knowledge. We start with ε = 1 (all random) and shrink ε toward 0.05 as the agent learns, so it gradually shifts from exploring to exploiting.</p>
+  </section>
+</div>
+
+<!-- SECTION 3 + 4: LEARNING -->
+<div class="grid">
+  <section class="panel">
+    <h2>3 · The learning agent (simplified DQN)</h2>
+    <div class="stats">
+      <div class="stat"><b id="tEp">0</b><span>EPISODES</span></div>
+      <div class="stat"><b id="tSteps">0</b><span>TRAIN STEPS</span></div>
+      <div class="stat"><b id="tUpd">0</b><span>UPDATES</span></div>
+      <div class="stat"><b id="tLoss">–</b><span>LOSS</span></div>
+    </div>
+    <p>This is a <b>real, small Deep Q-Network</b> written in plain JavaScript: a neural network with 7 inputs, 16 hidden ReLU neurons and 3 outputs (LEFT, STAY, RIGHT), trained with a <b>replay buffer</b>, a <b>target network</b>, an <b>ε-greedy</b> policy and <b>back-propagation</b>.</p>
+    <p class="note"><b>Honesty note:</b> this is a simplified demonstration, not DeepMind's original Atari system. DeepMind used raw screen pixels and a large convolutional network trained on millions of frames. Here the state is just 7 numbers (see panel 2), so it trains in minutes on a laptop. Rewards: +1 per brick, +0.5 for hitting the ball with the paddle, −1 for losing a life, and a tiny shaping penalty (−0.02 × distance) while the ball falls and the paddle is far from it. Nothing is prerecorded; every chart below comes from the live simulation.</p>
+    <canvas id="netCv" width="520" height="280" style="width:100%"></canvas>
+    <p class="note">Network diagram: cyan lines = positive weights, magenta = negative weights (brighter = larger). Node brightness = current activation. Outputs are the three Q-values.</p>
+  </section>
+
+  <section class="panel">
+    <h2>4 · Watching the learning happen</h2>
+    <h3>Reward per episode (cyan) and 10-episode average (yellow)</h3>
+    <canvas id="ch1" width="520" height="170" style="width:100%"></canvas>
+    <h3>Recent step rewards (last 150 steps)</h3>
+    <canvas id="ch2" width="520" height="90" style="width:100%"></canvas>
+    <h3>Learning log</h3>
+    <div id="log"></div>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>The learning loop</h2>
+  <ol class="loop">
+    <li>Observe the state</li><li>Select an action (ε-greedy)</li><li>Perform the action</li><li>Receive a reward</li><li>Store the experience &amp; update the network</li><li>Repeat</li>
+  </ol>
+  <p class="note">The target for each update is <code>reward + γ · max Q_target(next state)</code> (γ = 0.95). The network is nudged so its Q-value for the action taken moves toward that target. A separate <i>target network</i>, copied from the main one every 500 steps, keeps the target from shifting at every step, which stabilises training.</p>
+</section>
+</main>
+
+<script>
+"use strict";
+/* ============ HELPERS ============ */
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function showErr(e){ const b=$("err"); b.style.display="block"; b.textContent="Something went wrong: "+(e&&e.message||e)+" (press Reset game / Reset agent to continue)"; }
+window.addEventListener("error", ev => showErr(ev.error||ev.message));
+
+/* ============ GAME CONSTANTS ============ */
+const W=320, H=400;               // canvas size
+const PW=56, PH=8, PY=H-24;       // paddle width/height/y position
+const BR=5, SP=4;                 // ball radius and ball speed (pixels per step)
+const ROWS=5, COLS=8, BW=(W-20)/COLS, BH=14, BTOP=40; // brick grid
+const COLORS=["#ff2bd6","#ff7a2b","#ffd23f","#9dff3b","#00f0ff"];
+let g;                            // current game state
+
+/* Create / reset a game */
+function newGame(){
+  g={px:W/2-PW/2, bx:0,by:0,vx:0,vy:0, bricks:new Array(ROWS*COLS).fill(1),
+     left:ROWS*COLS, lives:3, score:0, steps:0, over:false, ret:0};
+  launch();
+}
+/* Put the ball on the paddle and shoot it upward at a random small angle */
+function launch(){
+  const a=Math.random()*0.8-0.4;
+  g.bx=g.px+PW/2; g.by=PY-BR-2; g.vx=SP*Math.sin(a); g.vy=-SP*Math.cos(a);
+}
+/* Advance the game one step. action: -1 left, 0 stay, +1 right. Returns reward and events. */
+function step(action){
+  let r=0; const ev=[];
+  g.px=clamp(g.px+action*6,0,W-PW);              // paddle stays inside walls
+  g.bx+=g.vx; g.by+=g.vy;
+  if(g.bx<BR){g.bx=BR;g.vx=-g.vx;}               // wall bounces
+  if(g.bx>W-BR){g.bx=W-BR;g.vx=-g.vx;}
+  if(g.by<BR){g.by=BR;g.vy=-g.vy;}
+  // paddle bounce: the hit position changes the angle
+  if(g.vy>0 && g.by+BR>=PY && g.by-BR<=PY+PH && g.bx>=g.px-BR && g.bx<=g.px+PW+BR){
+    const h=clamp((g.bx-(g.px+PW/2))/(PW/2),-1,1);
+    g.by=PY-BR; g.vx=SP*Math.sin(h); g.vy=-SP*Math.cos(h); r+=0.5; ev.push("paddle");
+  }
+  // brick collision
+  const c=Math.floor((g.bx-10)/BW), rw=Math.floor((g.by-BTOP)/BH);
+  if(rw>=0&&rw<ROWS&&c>=0&&c<COLS&&g.bricks[rw*COLS+c]){
+    g.bricks[rw*COLS+c]=0; g.left--; g.score+=10; g.vy=-g.vy; r+=1; ev.push("brick");
+  }
+  // ball lost
+  if(g.by>H+BR){ g.lives--; r-=1; ev.push("miss"); if(g.lives<=0) g.over=true; else launch(); }
+  if(g.left===0) g.over=true;
+  if(++g.steps>4000) g.over=true;                 // cap episode length
+  // small shaping reward: be near the ball while it falls
+  if(g.vy>0) r-=0.02*Math.abs(g.bx-(g.px+PW/2))/W;
+  return {r,ev};
+}
+
+/* ============ DEEP Q-NETWORK ============ */
+const NI=7, NH=16, NO=3, GAMMA=0.95, LR=0.01, BATCH=32, BUFMAX=5000;
+const randn=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
+/* Create a network with random (He-initialised) weights */
+function makeNet(){
+  const W1=Array.from({length:NH*NI},()=>randn()*Math.sqrt(2/NI));
+  const W2=Array.from({length:NO*NH},()=>randn()*Math.sqrt(2/NH)*0.5);
+  return {W1,b1:new Array(NH).fill(0),W2,b2:new Array(NO).fill(0)};
+}
+const cloneNet=n=>({W1:n.W1.slice(),b1:n.b1.slice(),W2:n.W2.slice(),b2:n.b2.slice()});
+/* Forward pass: state -> hidden activations (ReLU) -> 3 Q-values (linear) */
+function forward(n,s){
+  const h=new Array(NH), o=new Array(NO);
+  for(let j=0;j<NH;j++){ let z=n.b1[j]; for(let i=0;i<NI;i++) z+=n.W1[j*NI+i]*s[i]; h[j]=z>0?z:0; }
+  for(let k=0;k<NO;k++){ let z=n.b2[k]; for(let j=0;j<NH;j++) z+=n.W2[k*NH+j]*h[j]; o[k]=z; }
+  return {h,o};
+}
+const argmax=a=>a.indexOf(Math.max(...a));
+/* Convert the game into the compact 7-number state the network sees */
+function getState(){
+  const pc=g.px+PW/2;
+  return [g.bx/W, g.by/H, g.vx/SP, g.vy/SP, pc/W, (g.bx-pc)/W, g.left/(ROWS*COLS)];
+}
+/* One mini-batch of back-propagation using the DQN target */
+function trainBatch(){
+  const gW1=new Array(NH*NI).fill(0), gb1=new Array(NH).fill(0), gW2=new Array(NO*NH).fill(0), gb2=new Array(NO).fill(0);
+  let loss=0;
+  for(let n=0;n<BATCH;n++){
+    const e=buf[Math.floor(Math.random()*buf.length)];
+    // target = reward + gamma * max Q_target(next state)   (just the reward if the episode/life ended)
+    const target=e.r+(e.done?0:GAMMA*Math.max(...forward(tnet,e.s2).o));
+    const f=forward(net,e.s), err=f.o[e.a]-target;
+    loss+=0.5*err*err;
+    const d=clamp(err,-1,1);                      // clipped error (Huber-style) for stability
+    // back-propagation: only the output of the action taken has an error
+    gb2[e.a]+=d;
+    for(let j=0;j<NH;j++){
+      gW2[e.a*NH+j]+=d*f.h[j];
+      const dh=f.h[j]>0 ? d*net.W2[e.a*NH+j] : 0; // ReLU derivative
+      gb1[j]+=dh;
+      for(let i=0;i<NI;i++) gW1[j*NI+i]+=dh*e.s[i];
+    }
+  }
+  const k=LR/BATCH;                               // gradient-descent update
+  for(let i=0;i<gW1.length;i++) net.W1[i]-=k*gW1[i];
+  for(let i=0;i<NH;i++) net.b1[i]-=k*gb1[i];
+  for(let i=0;i<gW2.length;i++) net.W2[i]-=k*gW2[i];
+  for(let i=0;i<NO;i++) net.b2[i]-=k*gb2[i];
+  return loss/BATCH;
+}
+
+/* ============ AGENT / APP STATE ============ */
+let net, tnet, buf, bufI, eps, stats, lastF, lastA, lastS, lastExp, logs;
+let mode="human", training=false, running=false, humanOver=false, speed=10;
+const keys={L:false,R:false};
+const ACTIONS=["LEFT","STAY","RIGHT"];
+
+function resetAgent(){
+  net=makeNet(); tnet=cloneNet(net); buf=[]; bufI=0; eps=1;
+  stats={episodes:0,steps:0,updates:0,loss:null,epRet:[],stepR:[],nExp:0,nExpl:0};
+  lastF=forward(net,[0,0,0,0,0,0,0]); lastA=1; lastS=[0,0,0,0,0,0,0]; lastExp=false;
+  logs=[]; $("log").innerHTML=""; log("Agent reset: fresh random weights, ε = 1.00");
+}
+function log(msg,col){
+  const d=document.createElement("div"); d.textContent=msg; if(col) d.style.color=col;
+  const L=$("log"); L.insertBefore(d,L.firstChild); while(L.children.length>60) L.removeChild(L.lastChild);
+}
+
+/* One tick = one observe/act/learn cycle */
+function tick(){
+  const s=getState(), f=forward(net,s);
+  let a, explored=false;
+  if(mode==="human"){ a=(keys.R?1:0)-(keys.L?1:0)+1; }
+  else{
+    explored = training && Math.random()<eps;      // epsilon-greedy
+    a = explored ? Math.floor(Math.random()*3) : argmax(f.o);
+  }
+  lastF=f; lastA=a; lastS=s; lastExp=explored;
+  const res=step(a-1);
+  g.ret+=res.r; stats.stepR.push(res.r); if(stats.stepR.length>150) stats.stepR.shift();
+  if(mode==="ai"){
+    explored?stats.nExp++:stats.nExpl++;
+    if(res.ev.includes("brick")) log("Brick hit! Reward +1.0 received","#9dff3b");
+    if(res.ev.includes("miss")) log("Ball lost. Penalty −1.0 received","#ff2bd6");
+  }
+  if(mode==="ai" && training){
+    const exp={s,a,r:res.r,s2:getState(),done:res.ev.includes("miss")||g.over};
+    if(buf.length<BUFMAX) buf.push(exp); else { buf[bufI]=exp; bufI=(bufI+1)%BUFMAX; }  // replay buffer
+    stats.steps++;
+    if(buf.length>=300 && stats.steps%4===0){      // learn from a random batch of past experiences
+      stats.loss=trainBatch(); stats.updates++;
+      if(stats.updates%100===0) log("Network updated (#"+stats.updates+", loss "+stats.loss.toFixed(4)+")","#00f0ff");
+    }
+    if(stats.steps%500===0){ tnet=cloneNet(net); log("Target network synchronised","#ffd23f"); }
+    eps=Math.max(0.05,eps*0.9997);                 // shift from exploring to exploiting
+  }
+  if(g.over) endEpisode();
+}
+function endEpisode(){
+  if(mode==="ai"){
+    stats.episodes++; stats.epRet.push(g.ret); if(stats.epRet.length>200) stats.epRet.shift();
+    log("Episode "+stats.episodes+" ended: score "+g.score+", total reward "+g.ret.toFixed(2),"#ffd23f");
+    newGame();
+  } else { humanOver=true; running=false; $("bStart").textContent="▶ Start"; }
+}
+
+/* ============ RENDERING ============ */
+const gctx=$("game").getContext("2d");
+function drawGame(){
+  const x=gctx; x.fillStyle="#050716"; x.fillRect(0,0,W,H);
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(g.bricks[r*COLS+c]){
+    x.fillStyle=COLORS[r]; x.shadowColor=COLORS[r]; x.shadowBlur=6;
+    x.fillRect(10+c*BW+1,BTOP+r*BH+1,BW-2,BH-2);
+  }
+  x.shadowColor="#00f0ff"; x.shadowBlur=10; x.fillStyle="#00f0ff"; x.fillRect(g.px,PY,PW,PH);
+  x.fillStyle="#fff"; x.shadowColor="#fff"; x.beginPath(); x.arc(g.bx,g.by,BR,0,7); x.fill(); x.shadowBlur=0;
+  if(!running){
+    x.fillStyle="#000a"; x.fillRect(0,H/2-40,W,80); x.fillStyle="#fff"; x.font="bold 20px Segoe UI"; x.textAlign="center";
+    x.fillText(humanOver?"GAME OVER (score "+g.score+")":"Press Start",W/2,H/2+7); x.textAlign="left";
+  }
+}
+/* Generic line/bar chart helper drawn from real data */
+function chart(id,data,mode2,avg){
+  const c=$(id),x=c.getContext("2d"),w=c.width,h=c.height; x.clearRect(0,0,w,h);
+  x.strokeStyle="#222a5a"; x.strokeRect(0,0,w,h);
+  if(data.length<2){x.fillStyle="#8f9bd1";x.font="13px Segoe UI";x.fillText("Waiting for data… start AI training",12,h/2);return;}
+  const mn=Math.min(0,...data), mx=Math.max(0.01,...data), Y=v=>h-6-(v-mn)/(mx-mn)*(h-12), X=i=>6+i/(data.length-1)*(w-12);
+  x.strokeStyle="#556"; x.beginPath(); x.moveTo(0,Y(0)); x.lineTo(w,Y(0)); x.stroke();
+  if(mode2==="bar"){ const bw=(w-12)/data.length; data.forEach((v,i)=>{x.fillStyle=v>=0?"#9dff3b":"#ff2bd6"; x.fillRect(6+i*bw,Math.min(Y(0),Y(v)),Math.max(1,bw-1),Math.abs(Y(v)-Y(0))||1);}); return; }
+  x.strokeStyle="#00f0ff"; x.lineWidth=1.5; x.beginPath(); data.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v))); x.stroke();
+  if(avg){ x.strokeStyle="#ffd23f"; x.lineWidth=2.5; x.beginPath();
+    data.forEach((_,i)=>{const sl=data.slice(Math.max(0,i-9),i+1),m=sl.reduce((a,b)=>a+b,0)/sl.length; i?x.lineTo(X(i),Y(m)):x.moveTo(X(i),Y(m));}); x.stroke(); }
+  x.lineWidth=1; x.fillStyle="#8f9bd1"; x.font="11px Segoe UI"; x.fillText("max "+mx.toFixed(1),6,12); x.fillText("min "+mn.toFixed(1),6,h-8);
+}
+/* Neural-network diagram built from the real weights and activations */
+function drawNet(){
+  const c=$("netCv"),x=c.getContext("2d"),w=c.width,h=c.height; x.clearRect(0,0,w,h);
+  const pos=(n,i)=>40+(h-60)*(n===1?0.5:i/(n-1)); const LX=[70,260,450];
+  const mH=Math.max(0.01,...lastF.h);
+  const line=(x1,y1,x2,y2,wt)=>{x.strokeStyle=(wt>0?"rgba(0,240,255,":"rgba(255,43,214,")+Math.min(0.8,Math.abs(wt)*0.5)+")";x.lineWidth=Math.min(2.5,Math.abs(wt)*1.5);x.beginPath();x.moveTo(x1,y1);x.lineTo(x2,y2);x.stroke();};
+  for(let j=0;j<NH;j++){ for(let i=0;i<NI;i++) line(LX[0],pos(NI,i),LX[1],pos(NH,j),net.W1[j*NI+i]);
+                         for(let k=0;k<NO;k++) line(LX[1],pos(NH,j),LX[2],pos(NO,k),net.W2[k*NH+j]); }
+  const node=(px,py,v,col,rad)=>{x.fillStyle="#0a0e28";x.beginPath();x.arc(px,py,rad,0,7);x.fill();x.globalAlpha=0.25+0.75*clamp(v,0,1);x.fillStyle=col;x.beginPath();x.arc(px,py,rad,0,7);x.fill();x.globalAlpha=1;x.strokeStyle=col;x.lineWidth=1;x.stroke();};
+  const names=["ball x","ball y","ball vx","ball vy","paddle x","ball−paddle","bricks"];
+  x.fillStyle="#8f9bd1"; x.font="11px Segoe UI";
+  for(let i=0;i<NI;i++){ node(LX[0],pos(NI,i),Math.abs(lastS[i]),"#ffd23f",7); x.textAlign="right"; x.fillText(names[i],LX[0]-12,pos(NI,i)+4); }
+  for(let j=0;j<NH;j++) node(LX[1],pos(NH,j),lastF.h[j]/mH,"#9dff3b",5);
+  const qm=Math.max(...lastF.o.map(Math.abs),0.01); x.textAlign="left";
+  for(let k=0;k<NO;k++){ node(LX[2],pos(NO,k),k===lastA?1:0.15,k===lastA?"#00f0ff":"#8f9bd1",11); x.fillStyle="#e6ebff"; x.fillText(ACTIONS[k]+"  "+lastF.o[k].toFixed(2),LX[2]+16,pos(NO,k)+4); }
+  x.textAlign="center"; x.fillStyle="#8f9bd1"; x.fillText("INPUT (state)",LX[0],h-6); x.fillText("HIDDEN (16)",LX[1],h-6); x.fillText("OUTPUT (Q-values)",LX[2],h-6); x.textAlign="left";
+}
+/* Update all DOM readouts */
+function updateUI(){
+  $("sScore").textContent=g.score; $("sLives").textContent=g.lives; $("sBricks").textContent=g.left;
+  const s=lastS; $("stateBox").innerHTML=
+    "ball position: ("+(s[0]*W).toFixed(0)+", "+(s[1]*H).toFixed(0)+")<br>ball velocity: ("+(s[2]*SP).toFixed(1)+", "+(s[3]*SP).toFixed(1)+")<br>paddle centre: "+(s[4]*W).toFixed(0)+" · ball−paddle: "+(s[5]*W).toFixed(0)+"<br>bricks remaining: "+g.left;
+  const q=lastF.o, m=Math.max(0.01,...q.map(Math.abs)), best=argmax(q);
+  $("qbars").innerHTML=q.map((v,k)=>{const wd=Math.abs(v)/m*50;
+    return '<div class="qrow'+(k===lastA?" best":"")+'"><b>'+ACTIONS[k]+'</b><div class="track"><div class="fill" style="left:'+(v>=0?50:50-wd)+'%;width:'+wd+'%;background:'+(v>=0?"#00f0ff":"#ff2bd6")+'"></div></div><span class="mono">'+v.toFixed(3)+'</span></div>';}).join("");
+  const ch=$("chosen"); ch.textContent=ACTIONS[lastA]; ch.className="pill "+(lastExp?"explore":"exploit");
+  $("chosenWhy").textContent= mode==="human"?"(you are controlling the paddle; the network is only observing)":(lastExp?"EXPLORE: random action":"EXPLOIT: highest Q-value ("+ACTIONS[best]+")");
+  $("epsV").textContent=eps.toFixed(2); $("epsBar").style.width=(training||eps<1?eps*100:100)+"%";
+  $("nExp").textContent=stats.nExp; $("nExpl").textContent=stats.nExpl;
+  $("tEp").textContent=stats.episodes; $("tSteps").textContent=stats.steps; $("tUpd").textContent=stats.updates;
+  $("tLoss").textContent=stats.loss===null?"–":stats.loss.toFixed(3);
+}
+let frameN=0;
+function frame(){
+  try{
+    if(running){ const n=mode==="human"?1:speed; for(let i=0;i<n&&running;i++) tick(); }
+    drawGame();
+    if(++frameN%3===0 || !running){ updateUI(); chart("ch1",stats.epRet,"line",true); chart("ch2",stats.stepR,"bar"); drawNet(); }
+  }catch(e){ showErr(e); running=false; }
+  requestAnimationFrame(frame);
+}
+
+/* ============ CONTROLS ============ */
+function setMode(m){
+  mode=m; $("bHuman").classList.toggle("on",m==="human"); $("bAI").classList.toggle("on",m==="ai");
+  if(m==="human"){ training=false; $("bTrain").textContent="🧠 Start AI training"; $("bTrain").classList.remove("on"); }
+}
+function toggleRun(){ if(humanOver){newGame();humanOver=false;} running=!running; $("bStart").textContent=running?"⏸ Pause":"▶ Start"; }
+$("bStart").onclick=toggleRun;
+$("bReset").onclick=()=>{ newGame(); humanOver=false; running=false; $("bStart").textContent="▶ Start"; };
+$("bHuman").onclick=()=>{ setMode("human"); newGame(); humanOver=false; };
+$("bAI").onclick=()=>{ setMode("ai"); };
+$("bTrain").onclick=()=>{
+  if(!(mode==="ai"&&training)){ setMode("ai"); training=true; humanOver=false; running=true; $("bTrain").textContent="⏸ Pause training"; $("bTrain").classList.add("on"); $("bStart").textContent="⏸ Pause"; log("Training started/resumed");}
+  else { training=false; running=false; $("bTrain").textContent="🧠 Resume AI training"; $("bTrain").classList.remove("on"); $("bStart").textContent="▶ Start"; log("Training paused"); }
+};
+$("bForget").onclick=()=>{ resetAgent(); newGame(); };
+$("speed").oninput=e=>{ speed=+e.target.value; $("speedV").textContent=speed; };
+addEventListener("keydown",e=>{ if(e.key==="ArrowLeft"){keys.L=true;e.preventDefault();} if(e.key==="ArrowRight"){keys.R=true;e.preventDefault();} });
+addEventListener("keyup",e=>{ if(e.key==="ArrowLeft")keys.L=false; if(e.key==="ArrowRight")keys.R=false; });
+
+/* ============ START ============ */
+resetAgent(); newGame(); setMode("human"); frame();
+</script>
+</body>
+</html>
